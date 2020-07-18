@@ -1,8 +1,37 @@
-from flask import Flask, make_response, render_template
-from flask_bootstrap import Bootstrap
+from flask import Flask, make_response, render_template, g, redirect, url_for, flash, request
+from werkzeug.security import check_password_hash, generate_password_hash
+import sqlite3
 
 app = Flask(__name__)
-Bootstrap(app)
+app.config['SECRET_KEY'] = "dsafjkashgll325tgjgssafq34t"
+app.config['DATABASE'] = 'flaskr.db'
+app.config['DEBUG'] = True
+
+
+def connect_db():
+    rv = sqlite3.connect(app.config['DATABASE'])
+    rv.row_factory = sqlite3.Row
+    return rv
+
+
+def init_db():
+    with app.app_context():
+        db = get_db()
+        with app.open_resource('schema.sql', mode='r') as f:
+            db.cursor().executescript(f.read())
+        db.commit()
+
+
+def get_db():
+    if not hasattr(g, 'sqlite_db'):
+        g.sqlite_db = connect_db()
+    return g.sqlite_db
+
+
+@app.teardown_appcontext
+def close_db(error):
+    if hasattr(g, 'sqlite_db'):
+        g.sqlite_db.close()
 
 
 @app.route('/')
@@ -15,8 +44,30 @@ def about():
     return render_template('about.html')
 
 
-@app.route('/register')
+@app.route('/register', methods=('GET', 'POST'))
 def register():
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        db = get_db()
+        error = None
+
+        if not username:
+            error = 'Username is required'
+        elif not password:
+            error = 'Password is required'
+        elif db.execute(
+            'SELECT id FROM user WHERE username = ?', (username,)
+        ).fetchone() is not None:
+            error = 'User {} is already registered.'.format(username)
+
+        if error is None:
+            db.execute('INSERT INTO user (username, password) VALUES (?, ?)',
+                       (username, generate_password_hash(password)))
+            db.commit()
+
+        flash(error)
+
     return render_template('register.html')
 
 
